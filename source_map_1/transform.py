@@ -63,14 +63,52 @@ class ProcessorUtils:
     def fetch_api_data(api_url: str, resource_type: str = "資源") -> List[Dict[str, Any]]:
         """從 API 撷取資料的共用方法"""
         try:
-            print(f"🔄 正在從 API 撷取{resource_type}資料: {api_url}")
-            response = requests.get(api_url, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            print(f"✅ 成功撷取 API {resource_type}資料")
-            return data['member'] if 'member' in data else (data if isinstance(data, list) else [data])
-        except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-            print(f"❌ API 錯誤: {e}")
+            print(f"🔄 正在從 API 撷取 {resource_type} 資料: {api_url}")
+            
+            all_resources = []
+            offset = 0
+            limit = 50
+            
+            while True:
+                # 使用 params 參數構建請求
+                params = {"limit": limit, "offset": offset}
+                print(f"🔄 正在撷取 {resource_type} 資料 (offset: {offset})")
+                
+                response = requests.get(api_url, params=params, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+                
+                # 提取資料
+                if 'member' in data:
+                    batch_data = data['member']
+                elif isinstance(data, list):
+                    batch_data = data
+                else:
+                    batch_data = [data]
+                
+                all_resources.extend(batch_data)  # 使用 extend 而不是 append
+                print(f"✅ 成功撷取 {len(batch_data)} 筆 {resource_type} 資料 (總計: {len(all_resources)})")
+                
+                # 檢查是否還有更多資料
+                if 'totalItems' not in data or offset + limit >= data['totalItems']:
+                    break
+                
+                offset += limit
+            
+            print(f"🎉 完成撷取，共 {len(all_resources)} 筆 {resource_type} 資料")
+            return all_resources
+            
+        except requests.exceptions.RequestException as e:
+            print(f"❌ API 請求錯誤: {e}")
+            return []
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON 解析錯誤: {e}")
+            return []
+        except KeyError as e:
+            print(f"❌ 資料格式錯誤，缺少必要欄位: {e}")
+            return []
+        except Exception as e:
+            print(f"❌ 未預期的錯誤: {e}")
             return []
 
     @staticmethod
@@ -266,23 +304,11 @@ class WaterStationProcessor:
         if not self.api_url:
             print("❌ 沒有提供 API URL")
             return []
-        raw_data = self._fetch_api_data()
+        raw_data = ProcessorUtils.fetch_api_data(self.api_url, '加水站')
         if not raw_data:
             return []
         self.api_water_stations = self._convert_api_data(raw_data)
         return self.api_water_stations
-
-    def _fetch_api_data(self) -> List[Dict[str, Any]]:
-        try:
-            print(f"🔄 正在從 API 撷取資料: {self.api_url}")
-            response = requests.get(self.api_url, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            print(f"✅ 成功撷取 API 資料")
-            return data['member'] if 'member' in data else (data if isinstance(data, list) else [data])
-        except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-            print(f"❌ API 錯誤: {e}")
-            return []
 
     def _convert_api_data(self, raw_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         converted_stations = []
@@ -577,23 +603,11 @@ class MedicalStationProcessor:
         if not self.api_url:
             print("❌ 沒有提供 API URL")
             return []
-        raw_data = self._fetch_api_data()
+        raw_data = ProcessorUtils.fetch_api_data(self.api_url, '醫療站')
         if not raw_data:
             return []
         self.api_medical_stations = self._convert_api_data(raw_data)
         return self.api_medical_stations
-
-    def _fetch_api_data(self) -> List[Dict[str, Any]]:
-        try:
-            print(f"🔄 正在從 API 撷取醫療站資料: {self.api_url}")
-            response = requests.get(self.api_url, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            print(f"✅ 成功撷取 API 醫療站資料")
-            return data['member'] if 'member' in data else (data if isinstance(data, list) else [data])
-        except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-            print(f"❌ API 錯誤: {e}")
-            return []
 
     def _convert_api_data(self, raw_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         converted_stations = []
@@ -756,6 +770,8 @@ class MedicalStationProcessor:
                 source_notes = csv_station.get('notes', '') or ''
                 db_notes = api_station.get('notes', '') or ''
                 if source_notes != db_notes:
+                    print(f"db_notes = {db_notes}")
+                    print(f"source_notes = {source_notes}")
                     update_data['notes'] = source_notes
                     update_reasons.append('notes')
 
@@ -903,23 +919,11 @@ class RestroomProcessor:
         if not self.api_url:
             print("❌ 沒有提供 API URL")
             return []
-        raw_data = self._fetch_api_data()
+        raw_data = raw_data = ProcessorUtils.fetch_api_data(self.api_url, '廁所')
         if not raw_data:
             return []
         self.api_restrooms = self._convert_api_data(raw_data)
         return self.api_restrooms
-
-    def _fetch_api_data(self) -> List[Dict[str, Any]]:
-        try:
-            print(f"🔄 正在從 API 撷取廁所資料: {self.api_url}")
-            response = requests.get(self.api_url, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            print(f"✅ 成功撷取 API 廁所資料")
-            return data['member'] if 'member' in data else (data if isinstance(data, list) else [data])
-        except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-            print(f"❌ API 錯誤: {e}")
-            return []
 
     def _convert_api_data(self, raw_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         converted_restrooms = []
@@ -1047,8 +1051,15 @@ class RestroomProcessor:
         http_requests = []
 
         print(f"\n🔄 開始分析 source 和 db 廁所資料...")
+        print(csv_by_name.keys())
+        print(len(csv_by_name.keys()))
+        print(api_by_name.keys())
+        print(len(api_by_name.keys()))
 
+        index = 1
         for name, csv_restroom in csv_by_name.items():
+            print([index])
+            index += 1
             if name in api_by_name:
                 # 存在於 DB 中，生成 PATCH 請求
                 api_restroom = api_by_name[name]
@@ -1079,6 +1090,7 @@ class RestroomProcessor:
                 source_notes = csv_restroom.get('notes', '') or ''
                 db_notes = api_restroom.get('notes', '') or ''
                 if source_notes != db_notes:
+                    print(f"id = {restroom_id}")
                     print(f"source_notes = {source_notes}")
                     print(f"db_notes = {db_notes}")
                     update_data['notes'] = source_notes
@@ -1109,6 +1121,7 @@ class RestroomProcessor:
                 coordinates = csv_restroom.get('coordinates', {})
                 lat = coordinates.get('lat')
                 lng = coordinates.get('lng')
+                notes = csv_restroom.get('notes', '')
 
                 # 獲取地址
                 address = ""
@@ -1117,6 +1130,7 @@ class RestroomProcessor:
 
                 create_data = {
                     "name": name,
+                    "notes": notes,
                     "address": address,
                     "facility_type": "mobile_toilet",
                     "opening_hours": "-",
@@ -1152,6 +1166,320 @@ class RestroomProcessor:
         }
 
         print(f"\n📊 廁所同步分析結果摘要:")
+        print(f"更新請求: {updated_count} 個")
+        print(f"創建請求: {created_count} 個")
+        print(f"跳過處理: {skipped_count} 個")
+        print(f"總請求數: {len(http_requests)} 個")
+
+        return summary
+
+
+class ShowerStationProcessor:
+    """洗澡點處理器 - 支援 CSV 和 API 兩種資料源"""
+
+
+    def __init__(self, csv_reader: Optional[PlacemarksCSVReader] = None, api_url: Optional[str] = None):
+        self.csv_reader = csv_reader
+        self.api_url = api_url
+        self.csv_showers = []
+        self.api_showers = []
+
+    def extract_from_csv(self) -> List[Dict[str, Any]]:
+        if not self.csv_reader:
+            print("❌ 沒有提供 PlacemarksCSVReader 實例")
+            return []
+
+        # 篩選洗澡點
+        shower_placemarks = []
+        for placemark in self.csv_reader.get_placemarks():
+            folder = placemark.get('folder', '')
+            name = placemark.get('name', '')
+            if '沐浴' in folder or '洗澡' in folder or '沐浴' in name or '洗澡' in name:
+                shower_placemarks.append(placemark)
+
+        self.csv_showers = []
+        seen_names = set()
+        for placemark in shower_placemarks:
+            name = placemark.get('name', '')
+            lat = placemark.get('latitude')
+            lng = placemark.get('longitude')
+            
+            # 檢查座標是否為NaN 或 None
+            if pd.isna(lat) or pd.isna(lng) or lat is None or lng is None:
+                print(f"⚠️  跳過無座標的洗澡點: {name}")
+                continue
+            
+            # 檢查是否已處理過相同名稱
+            if name in seen_names:
+                print(f"⚠️  跳過重複名稱的洗澡點: {name}")
+                continue
+            seen_names.add(name)
+            
+            # 處理 notes 欄位，將 NaN 轉換為空字串
+            description = placemark.get('description', '')
+            if pd.isna(description) or description == 'nan':
+                description = ''
+                
+            shower = {
+                "name": name,
+                "notes": description,
+                "info_source": "地圖一",
+                "coordinates": {"lat": float(lat), "lng": float(lng)}
+            }
+            self.csv_showers.append(shower)
+        return self.csv_showers
+
+    def extract_from_api(self) -> List[Dict[str, Any]]:
+        if not self.api_url:
+            print("ℹ️ 沒有提供 API URL")
+            return []
+        raw_data = ProcessorUtils.fetch_api_data(self.api_url, '洗澡點')
+        if not raw_data:
+            return []
+        self.api_showers = self._convert_api_data(raw_data)
+        return self.api_showers
+        
+    def _convert_api_data(self, raw_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        converted_showers = []
+        for item in raw_data:
+            coordinates = item.get('coordinates', {})
+            lat = lng = None
+            if coordinates:
+                if isinstance(coordinates, dict):
+                    lat = coordinates.get('lat') or coordinates.get('latitude')
+                    lng = coordinates.get('lng') or coordinates.get('longitude')
+                elif isinstance(coordinates, str):
+                    try:
+                        coords = coordinates.split(',')
+                        if len(coords) >= 2:
+                            lat, lng = float(coords[0].strip()), float(coords[1].strip())
+                    except (ValueError, IndexError):
+                        print(f"⚠️  無法解析座標字串: {coordinates}")
+                        
+            shower = {
+                'id': item.get('id'),
+                'name': item.get('name'),
+                'address': item.get('address'),
+                'phone': item.get('phone'),
+                'facility_type': item.get('facility_type'),
+                'time_slots': item.get('time_slots'),
+                "available_period": item.get('available_period'),
+                "pricing": item.get('pricing'),
+                "info_source": item.get('info_source'),
+                'is_free': item.get('is_free'),
+                "contact_method": item.get('contact_method'),
+                "requires_appointment": item.get('requires_appointment'),
+                'status': item.get('status'),
+                'notes': item.get('notes'),
+                'lat': lat,
+                'lng': lng
+            }
+            
+            converted_showers.append(shower)
+        return converted_showers
+        
+    def save_csv_to_csv(self, output_file: str, showers: Optional[List[Dict[str, Any]]] = None):
+        data_to_save = showers if showers is not None else self.csv_showers
+        if not data_to_save:
+            print("❌ 沒有 KML 洗澡點資料可以儲存")
+            return
+        try:
+            with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=['name', 'notes', 'info_source', 'lat', 'lng'])
+                writer.writeheader()
+                for shower in data_to_save:
+                    row = {
+                        'name': shower.get('name', ''), 'notes': shower.get('notes', ''),
+                        'info_source': shower.get('info_source', ''),
+                        'lat': shower.get('coordinates', {}).get('lat'),
+                        'lng': shower.get('coordinates', {}).get('lng')
+                    }
+                    writer.writerow(row)
+            print(f"✅ 成功儲存 {len(data_to_save)} 個 KML 洗澡點資料到 {output_file}")
+        except IOError as e:
+            print(f"❌ 儲存 KML CSV 檔案錯誤: {e}")
+            
+            
+    def save_api_to_csv(self, output_file: str, showers: Optional[List[Dict[str, Any]]] = None):
+        data_to_save = showers if showers is not None else self.api_showers
+        if not data_to_save:
+            print("❌ 沒有 API 洗澡點資料可以儲存")
+            return
+        try:
+            with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['id', 'name', 'address', 'phone', 'facility_type', 'time_slots', 'available_period', 'pricing', 'info_source', 'is_free', 'contact_method', 'requires_appointment', 'status', 'notes', 'lat', 'lng']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                for shower in data_to_save:
+                    row = {k: (v if v is not None else '') for k, v in shower.items()}
+                    writer.writerow(row)
+            print(f"✅ 成功儲存 {len(data_to_save)} 個 API 洗澡點資料到 {output_file}")
+        except IOError as e:
+            print(f"❌ 儲存 API CSV 檔案錯誤: {e}")
+            
+    def show_csv_summary(self, showers: Optional[List[Dict[str, Any]]] = None):
+        data_to_show = showers if showers is not None else self.csv_showers
+        if not data_to_show:
+            print("❌ 沒有找到任何 KML 洗澡點資料")
+            return
+        print(f"\n🚻 KML 洗澡點處理結果摘要:")
+        print(f"總共找到: {len(data_to_show)} 個洗澡點")
+        if len(data_to_show) > 0:
+            print(f"\n📍 洗澡點列表:")
+            for i, shower in enumerate(data_to_show[:10], 1):
+                print(f"  {i}. {shower['name']}")
+            if len(data_to_show) > 10:
+                print(f"  ... 還有 {len(data_to_show) - 10} 個洗澡點")
+    
+    def show_api_summary(self, showers: Optional[List[Dict[str, Any]]] = None):
+        data_to_show = showers if showers is not None else self.api_showers
+        if not data_to_show:
+            print("❌ 沒有找到任何 API 洗澡點資料")
+            return
+        total_count = len(data_to_show)
+        with_coords = sum(1 for shower in data_to_show if shower['lat'] is not None and shower['lng'] is not None)
+        without_coords = total_count - with_coords
+        
+        print(f"\n🌐 API 洗澡點處理結果摘要:")
+        print(f"總共找到: {total_count} 個洗澡點")
+        print(f"有座標: {with_coords} 個")
+        print(f"無座標: {without_coords} 個")
+        
+        if len(data_to_show) > 0:
+            print(f"\n📍 洗澡點列表:")
+            for i, shower in enumerate(data_to_show[:10], 1):
+                lat_lng = f"({shower['lat']}, {shower['lng']})" if shower['lat'] is not None and shower['lng'] is not None else "(無座標)"
+                print(f"  {i}. {shower['name']} {lat_lng}")
+            if len(data_to_show) > 10:
+                print(f"  ... 還有 {len(data_to_show) - 10} 個洗澡點")
+                
+    
+    def get_csv_showers(self) -> List[Dict[str, Any]]:
+        return self.csv_showers
+    
+    def get_api_showers(self) -> List[Dict[str, Any]]:
+        return self.api_showers
+
+    def sync_source_to_db(self, output_file: str = "showers_sync_requests.json") -> Dict[str, Any]:
+        """比對 source 和 db 資料，生成同步請求的 JSON 檔案"""
+        if not self.csv_showers:
+            print("❌ 缺少 KML 資料，無法進行同步")
+            return {"updated": 0, "created": 0, "skipped": 0}
+        
+        # 建立 name 對應的索引
+        csv_by_name = {shower['name']: shower for shower in self.csv_showers}
+        api_by_name = {shower['name']: shower for shower in self.api_showers} if self.api_showers else {}
+        
+        updated_count = created_count = skipped_count = 0
+        http_requests = []
+        
+        print(f"\n🔄 開始分析 source 和 db 洗澡點資料...")
+        
+        for name, csv_shower in csv_by_name.items():
+            if name in api_by_name:
+                # 存在於 DB 中，生成 PATCH 請求
+                api_shower = api_by_name[name]
+                shower_id = api_shower.get('id')
+
+                if not shower_id:
+                    print(f"⚠️  跳過無 ID 的洗澡點: {name}")
+                    skipped_count += 1
+                    continue
+                
+                # 準備更新資料 - 只包含需要更新的欄位
+                update_data = {}
+                update_reasons = []
+                
+                # 1. 檢查是否需要更新 address (為空字串或 null)
+                db_address = api_shower.get('address', '')
+                if not db_address or db_address.strip() == '' or db_address.strip() == '-':
+                    coordinates = csv_shower.get('coordinates', {})
+                    lat = coordinates.get('lat')
+                    lng = coordinates.get('lng')
+                    if lat and lng:
+                        address = ProcessorUtils.get_address_from_coordinates(lat, lng)
+                        if address:
+                            update_data['address'] = address
+                            update_reasons.append('address')
+                            
+                # 2. 檢查是否需要更新 notes
+                source_notes = csv_shower.get('notes', '') or ''
+                db_notes = api_shower.get('notes', '') or ''
+                if source_notes != db_notes:
+                    print(f"source_notes = {source_notes}")
+                    print(f"db_notes = {db_notes}")
+                    update_data['notes'] = source_notes
+                    update_reasons.append('notes')
+                    
+                # 3. 如果有欄位需要更新，添加必要的固定欄位
+                if update_data:
+                    # 4. 生成 PATCH 請求記錄
+                    patch_request = {
+                        'http_method': 'PATCH',
+                        'url': f"https://guangfu250923.pttapp.cc/shower_stations/{shower_id}",
+                        'request_body': update_data,
+                        'name': name,
+                        'action': 'update'
+                    }
+                    http_requests.append(patch_request)
+                    print(f"📝 生成更新請求: {name} (更新欄位: {', '.join(update_reasons)})")
+                    updated_count += 1
+                else:
+                    # 沒有需要更新的欄位
+                    print(f"ℹ️  跳過無變化的洗澡點: {name}")
+                    skipped_count += 1
+            else:
+                # 不存在於 DB 中，生成 POST 請求
+                print(f"📝 生成創建請求: {name}")
+
+                # 準備創建資料
+                coordinates = csv_shower.get('coordinates', {})
+                lat = coordinates.get('lat')
+                lng = coordinates.get('lng')
+
+                # 獲取地址
+                address = ""
+                if lat and lng:
+                    address = ProcessorUtils.get_address_from_coordinates(lat, lng) or ""
+                    
+                    
+                create_data = {
+                    "name": name,
+                    "address": address,
+                    "facility_type": "-",
+                    "time_slots": "-",
+                    "available_period": "-",
+                    "requires_appointment": False,
+                    "is_free": True,
+                    "status": "-",
+                    "coordinates": {
+                        "lat": lat,
+                        "lng": lng
+                    }
+                }
+                
+                # 生成 POST 請求記錄
+                post_request = {
+                    'http_method': 'POST',
+                    'url': 'https://guangfu250923.pttapp.cc/shower_stations',
+                    'request_body': create_data,
+                    'name': name,
+                    'action': 'create'
+                }
+                http_requests.append(post_request)
+                created_count += 1
+    
+    # 保存 HTTP 請求到 JSON
+        ProcessorUtils.save_json_requests(http_requests, output_file)
+
+        summary = {
+            "updated": updated_count,
+            "created": created_count,
+            "skipped": skipped_count,
+            "total_requests": len(http_requests)
+        }
+
+        print(f"\n📊 洗澡點同步分析結果摘要:")
         print(f"更新請求: {updated_count} 個")
         print(f"創建請求: {created_count} 個")
         print(f"跳過處理: {skipped_count} 個")
@@ -1259,6 +1587,32 @@ def main():
             if csv_restrooms:
                 print(f"\n🔄 開始分析 source 廁所資料到 API 資料庫...")
                 sync_result = restroom_processor.sync_source_to_db()
+
+    if mode in ["shower", "all"]:
+        # 處理洗澡點
+        shower_api_url = "https://guangfu250923.pttapp.cc/shower_stations"
+        shower_processor = ShowerStationProcessor(csv_reader=csv_reader, api_url=shower_api_url)
+        
+        print(f"\n🚿 正在提取 CSV 洗澡點資料...")
+        csv_showers = shower_processor.extract_from_csv()
+        shower_processor.show_csv_summary()
+        
+        if csv_showers:
+            print(f"\n💾 正在儲存 CSV 洗澡點 CSV...")
+            shower_processor.save_csv_to_csv("shower_stations_source.csv")
+            
+        print(f"\n🌐 正在提取 API 洗澡點資料...")
+        api_showers = shower_processor.extract_from_api()
+        shower_processor.show_api_summary()
+        if api_showers:
+            print(f"\n💾 正在儲存 API 洗澡點 CSV...")
+            shower_processor.save_api_to_csv("shower_stations_db.csv")
+
+        # 同步 source 到 db (僅限 shower 或 all 模式)
+        if mode == "shower" or mode == "all":
+            if csv_showers:
+                print(f"\n🔄 開始分析 source 洗澡點資料到 API 資料庫...")
+                sync_result = shower_processor.sync_source_to_db()
 
     print("🎉 處理完成！")
 

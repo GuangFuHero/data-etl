@@ -45,7 +45,7 @@ class KMLParser:
             print(f"⚠️  無法解析座標: {coord_text}")
             return None, None
 
-    def extract_placemarks_from_kml(self, kml_file: str) -> List[Dict[str, Any]]:
+    def extract_placemarks_from_kml(self, kml_file: str, source_mid: str = "") -> List[Dict[str, Any]]:
         """從 KML 檔案提取所有 Placemark 資料"""
         self.placemarks = []
         try:
@@ -81,6 +81,9 @@ class KMLParser:
                         data['latitude'] = None
                         data['longitude'] = None
 
+                    # 加入 source 欄位
+                    data['source'] = source_mid
+
                     self.placemarks.append(data)
                 else:
                     for child in element:
@@ -99,7 +102,7 @@ class KMLParser:
             return
         try:
             with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=['folder', 'name', 'description', 'style_url', 'latitude', 'longitude'])
+                writer = csv.DictWriter(csvfile, fieldnames=['folder', 'name', 'description', 'style_url', 'latitude', 'longitude', 'source'])
                 writer.writeheader()
                 for placemark in data_to_save:
                     writer.writerow(placemark)
@@ -254,8 +257,15 @@ class GoogleMapsKMLDownloader:
 
         # 解析 KML 並轉為 CSV
         print(f"\n🔄 正在解析 KML 檔案...")
+
+        # 從 URL 提取 map_id 作為 source
+        map_id = self.extract_map_id(maps_url)
+        if not map_id:
+            print("❌ 無法提取 Map ID，將使用空字串作為 source")
+            map_id = ""
+
         kml_parser = KMLParser()
-        placemarks = kml_parser.extract_placemarks_from_kml(kml_file)
+        placemarks = kml_parser.extract_placemarks_from_kml(kml_file, map_id)
         kml_parser.show_summary()
 
         if placemarks:
@@ -266,13 +276,104 @@ class GoogleMapsKMLDownloader:
             print("❌ 沒有資料可以儲存")
             return False
 
+    def download_multiple_maps_to_csv(self, map_sources: List[Dict[str, str]], csv_file: str = "placemarks.csv") -> bool:
+        """從多個 Google Maps 下載 KML 並合併為一個 CSV"""
+        print(f"🗺️  多地圖下載並合併工具")
+        print(f"📊 CSV 檔案: {csv_file}")
+        print(f"🗂️  來源地圖數量: {len(map_sources)}")
+        print("=" * 60)
+
+        all_placemarks = []
+        primary_map_records = set()  # 儲存地圖一的 (folder, name) 組合
+        kml_parser = KMLParser()
+
+        for i, source in enumerate(map_sources, 1):
+            map_id = source['mid']
+            name = source.get('name', f'地圖{i}')
+            maps_url = f"https://www.google.com/maps/d/u/0/viewer?mid={map_id}"
+            kml_file = f"data_{map_id}.kml"
+
+            print(f"\n📍 正在處理第 {i}/{len(map_sources)} 個地圖: {name}")
+            print(f"   Map ID: {map_id}")
+
+            # 下載 KML
+            if self.download_from_maps_url(maps_url, kml_file):
+                # 解析 KML
+                print(f"🔄 正在解析 {name} 的 KML 檔案...")
+                placemarks = kml_parser.extract_placemarks_from_kml(kml_file, map_id)
+
+                if placemarks:
+                    if i == 1:
+                        # 第一個地圖（地圖一）：直接加入所有資料
+                        all_placemarks.extend(placemarks)
+                        # 建立地圖一的 (folder, name) 索引
+                        for placemark in placemarks:
+                            folder_name_key = (placemark.get('folder', ''), placemark.get('name', ''))
+                            primary_map_records.add(folder_name_key)
+                        print(f"✅ 成功獲取 {len(placemarks)} 個 Placemark（主地圖）")
+                    else:
+                        # 其他地圖：檢查是否與地圖一重複
+                        added_count = 0
+                        skipped_count = 0
+
+                        for placemark in placemarks:
+                            folder_name_key = (placemark.get('folder', ''), placemark.get('name', ''))
+
+                            if folder_name_key in primary_map_records:
+                                # 與地圖一重複，跳過
+                                skipped_count += 1
+                            else:
+                                # 不重複，加入
+                                all_placemarks.append(placemark)
+                                added_count += 1
+
+                        print(f"✅ 成功獲取 {len(placemarks)} 個 Placemark，新增 {added_count} 個，跳過重複 {skipped_count} 個")
+                else:
+                    print(f"⚠️  {name} 沒有 Placemark 資料")
+            else:
+                print(f"❌ {name} 下載失敗")
+
+        # 顯示合併後的摘要
+        if all_placemarks:
+            print(f"\n📊 去重合併結果摘要:")
+            print(f"總共獲得: {len(all_placemarks)} 個 Placemark（已去重）")
+
+            # 按來源統計
+            source_stats = {}
+            for placemark in all_placemarks:
+                source = placemark.get('source', 'unknown')
+                source_stats[source] = source_stats.get(source, 0) + 1
+
+            for source_id, count in source_stats.items():
+                source_name = next((s['name'] for s in map_sources if s['mid'] == source_id), source_id)
+                print(f"  {source_name} ({source_id}): {count} 個")
+
+            print(f"\n💾 正在儲存去重後的 CSV...")
+            kml_parser.save_to_csv(csv_file, all_placemarks)
+            return True
+        else:
+            print("❌ 沒有任何資料可以儲存")
+            return False
+
 
 def main():
     print("🗺️  Google Maps KML 下載並解析工具")
     print("=" * 60)
 
-    # 預設的 Google Maps URL
-    default_url = "https://www.google.com/maps/d/u/0/viewer?ll=23.67227849999999%2C121.4284911&z=13&mid=1qOHK91tv68NacIN1GVTDYKn10ojb-t8"
+    # 多地圖來源配置
+    map_sources = [
+        {
+            "mid": "1qOHK91tv68NacIN1GVTDYKn10ojb-t8",
+            "name": "地圖一"
+        },
+        {
+            "mid": "1hvkIGwDBe9ehupEHxY6KzVSTuLWsGfU",
+            "name": "地圖二"
+        }
+    ]
+
+    # 預設的 Google Maps URL (第一個地圖)
+    default_url = f"https://www.google.com/maps/d/u/0/viewer?ll=23.67227849999999%2C121.4284911&z=13&mid={map_sources[0]['mid']}"
 
     # 檢查命令列參數
     if len(sys.argv) > 1:
@@ -293,6 +394,25 @@ def main():
                 if success:
                     print("\n🎉 下載並解析完成！")
                     print(f"📁 KML 檔案: {os.path.abspath(kml_file)}")
+                    print(f"📊 CSV 檔案: {os.path.abspath(csv_file)}")
+                else:
+                    print("\n❌ 處理失敗")
+                    sys.exit(1)
+            except KeyboardInterrupt:
+                print("\n⚠️  用戶中斷操作")
+            except Exception as e:
+                print(f"\n❌ 發生未預期的錯誤: {e}")
+                sys.exit(1)
+        elif mode in ['--multi', '-m']:
+            # 多地圖模式：下載多個地圖並合併為 CSV
+            csv_file = sys.argv[2] if len(sys.argv) > 2 else "placemarks.csv"
+
+            try:
+                downloader = GoogleMapsKMLDownloader()
+                success = downloader.download_multiple_maps_to_csv(map_sources, csv_file)
+
+                if success:
+                    print("\n🎉 多地圖下載並合併完成！")
                     print(f"📊 CSV 檔案: {os.path.abspath(csv_file)}")
                 else:
                     print("\n❌ 處理失敗")
@@ -323,18 +443,16 @@ def main():
                 print(f"\n❌ 發生未預期的錯誤: {e}")
                 sys.exit(1)
     else:
-        # 沒有參數，使用預設 URL 並下載解析為 CSV
-        maps_url = default_url
-        print(f"ℹ️  使用預設 URL")
-        print(f"ℹ️  將自動下載並解析為 CSV")
+        # 沒有參數，使用多地圖模式下載並合併為 CSV
+        print(f"ℹ️  使用多地圖模式")
+        print(f"ℹ️  將自動下載並合併多個地圖為 CSV")
 
         try:
             downloader = GoogleMapsKMLDownloader()
-            success = downloader.download_and_parse_to_csv(maps_url)
+            success = downloader.download_multiple_maps_to_csv(map_sources)
 
             if success:
-                print("\n🎉 下載並解析完成！")
-                print(f"📁 KML 檔案: {os.path.abspath('data.kml')}")
+                print("\n🎉 多地圖下載並合併完成！")
                 print(f"📊 CSV 檔案: {os.path.abspath('placemarks.csv')}")
             else:
                 print("\n❌ 處理失敗")
